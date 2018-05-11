@@ -1,2 +1,0 @@
-# contracts
-QUANTLER ICO Contract
