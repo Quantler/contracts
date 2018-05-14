@@ -8,6 +8,7 @@ import "zeppelin-solidity/contracts/ownership/Ownable.sol";
  * the Ownable contract
  */
 contract Curatable is Ownable {
+  
   address public curator;
 
 

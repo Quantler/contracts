@@ -1,7 +1,7 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace test
+namespace test.Model
 {
     public class ContractModel
     {
@@ -19,8 +19,8 @@ namespace test
             var data = JObject.Parse(json);
             return new ContractModel
             {
-                ByteCode = "",
-                Abi = ""
+                ByteCode = data["bytecode"].Value<string>(),
+                Abi = data["abi"].ToString()
             };
         }
     }

@@ -2,12 +2,18 @@
 using Nethereum.Contracts;
 using Nethereum.Hex.HexTypes;
 using Nethereum.RPC.Eth.DTOs;
+using Nethereum.Util;
 using Nethereum.Web3;
+using Nethereum.Web3.Accounts;
+using Nethereum.Web3.Accounts.Managed;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using static System.Console;
+using System.Numerics;
+using System.Threading.Tasks;
+using test.Model;
+using Xunit.Abstractions;
 
 namespace test
 {
@@ -16,12 +22,25 @@ namespace test
     /// </summary>
     public abstract class BaseTest
     {
-        #region Protected Fields
+        #region Public Fields
 
         /// <summary>
         /// One ETH in Wei
         /// </summary>
-        protected const long OneEth = 100000000000000000;
+        public static BigInteger OneEth = new BigInteger(100000000000000000);
+
+        #endregion Public Fields
+
+        #region Protected Fields
+
+        protected const string CrowdSaleContractName = "QuantTokenCrowdSale";
+
+        /// <summary>
+        /// The password
+        /// </summary>
+        protected const string Password = "Password";
+
+        protected const string TokenContractName = "QuantToken";
 
         /// <summary>
         /// The configuration
@@ -29,9 +48,14 @@ namespace test
         protected static IConfigurationRoot Configuration;
 
         /// <summary>
+        /// Outputhelper instance
+        /// </summary>
+        protected readonly ITestOutputHelper Output;
+
+        /// <summary>
         /// The web3
         /// </summary>
-        protected Web3 Web3;
+        protected Web3 OwnerWeb3;
 
         #endregion Protected Fields
 
@@ -40,29 +64,27 @@ namespace test
         /// <summary>
         /// Initializes a new instance of the <see cref="BaseTest"/> class.
         /// </summary>
-        protected BaseTest()
+        protected BaseTest(ITestOutputHelper output)
         {
+            Output = output;
             if (Configuration == null)
             {
                 var builder = new ConfigurationBuilder()
                     .SetBasePath(Directory.GetCurrentDirectory())
                     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
-
                 Configuration = builder.Build();
 
                 //Print current config
-                WriteLine($"========== BASE CONFIGURATION =========");
-                WriteLine($":");
-                WriteLine($":");
-                WriteLine($":");
-                WriteLine($":");
-                WriteLine($":");
-                WriteLine($"======= END BASE CONFIGURATION =======");
-
-                //Set references
-                Web3 = new Web3(Configuration["RPC"]);
-                AddressDictionary = Configuration.GetSection("TestAddress").GetChildren().ToDictionary(x => x.Key, x => x.Value);
+                AccountDictionary = Configuration.GetSection("TestAddress").GetChildren().ToArray()
+                    .ToDictionary(x => $"{Configuration[x.Path + ":0"]}", x => $"{Configuration[x.Path + ":1"]}");
+                //output.WriteLine("========== BASE CONFIGURATION =========");
+                //output.WriteLine($"TestAddress:{AccountDictionary.Select(x => $"\n\r{x.Key}: {x.Value}")}");
+                //output.WriteLine($"RPC:{Configuration["RPC"]}");
+                //output.WriteLine("======= END BASE CONFIGURATION =======");
             }
+
+            //Set references
+            OwnerWeb3 = GetClientConnection(AccountDictionary.ElementAt(0).Value);
         }
 
         #endregion Protected Constructors
@@ -75,18 +97,44 @@ namespace test
         /// <value>
         /// The address dictionary.
         /// </value>
-        public Dictionary<string, string> AddressDictionary { get; }
+        public static Dictionary<string, string> AccountDictionary { get; private set; }
+
+        /// <summary>
+        /// Gets or sets the crowd sale contract.
+        /// </summary>
+        public Contract CrowdSaleContract { get; set; }
+
+        /// <summary>
+        /// Gets the crowd sale receipt.
+        /// </summary>
+        public TransactionReceipt CrowdSaleReceipt { get; private set; }
+
+        /// <summary>
+        /// Gets the token contract.
+        /// </summary>
+        public Contract TokenContract { get; private set; }
+
+        /// <summary>
+        /// Gets the token receipt.
+        /// </summary>
+        public TransactionReceipt TokenReceipt { get; private set; }
 
         #endregion Public Properties
 
-        #region Protected Methods
+        #region Protected Properties
+
+        protected TimeSpan OpeningTimeDelay => TimeSpan.FromSeconds(2);
+
+        #endregion Protected Properties
+
+        #region Public Methods
 
         /// <summary>
         /// Converts from unix timestamp.
         /// </summary>
         /// <param name="timestamp">The timestamp.</param>
         /// <returns></returns>
-        protected DateTime ConvertFromUnixTimestamp(double timestamp)
+        public static DateTime ConvertFromUnixTimestamp(long timestamp)
         {
             DateTime origin = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
             return origin.AddSeconds(timestamp);
@@ -97,11 +145,44 @@ namespace test
         /// </summary>
         /// <param name="date">The date.</param>
         /// <returns></returns>
-        protected double ConvertToUnixTimestamp(DateTime date)
+        public static long ConvertToUnixTimestamp(DateTime date)
         {
             DateTime origin = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
             TimeSpan diff = date.ToUniversalTime() - origin;
-            return Math.Floor(diff.TotalSeconds);
+            return Convert.ToInt64(Math.Floor(diff.TotalSeconds));
+        }
+
+        #endregion Public Methods
+
+        #region Protected Methods
+
+        /// <summary>
+        /// Execute the buy tokens function based on the supplied info
+        /// </summary>
+        /// <param name="fromAddress"></param>
+        /// <param name="toAddress"></param>
+        /// <param name="amount"></param>
+        /// <param name="crowdsaleContract"></param>
+        /// <returns></returns>
+        protected async Task<TransactionReceipt> BuyTokens(string fromAddress, string toAddress, BigInteger amount, Contract crowdsaleContract = null)
+        {
+            //Get send function
+            var func = (crowdsaleContract ?? CrowdSaleContract).GetFunction("buyTokens");
+
+            //Send transaction and return results
+            return await func.SendTransactionAndWaitForReceiptAsync(fromAddress, GetEnoughGas(), new HexBigInteger(amount), null, toAddress);
+        }
+
+        /// <summary>
+        /// Creates the new ethereum address asynchronous.
+        /// </summary>
+        /// <param name="password">The password.</param>
+        /// <returns></returns>
+        protected async Task<string> CreateNewEthereumAddressAsync(string password)
+        {
+            var address = await OwnerWeb3.Personal.NewAccount.SendRequestAsync(password);
+            Output.WriteLine($"Generated Address: {address}");
+            return address;
         }
 
         /// <summary>
@@ -109,25 +190,76 @@ namespace test
         /// </summary>
         /// <param name="contract">The contract.</param>
         /// <param name="owner">The owner.</param>
-        /// <param name="contractname">The contractname.</param>
         /// <param name="parms">The parms.</param>
         /// <returns>The transaction receipt</returns>
-        protected TransactionReceipt DeployContract(ContractModel contract, string owner, string contractname, params object[] parms)
+        protected Contract DeployContract(ContractModel contract, string owner, out TransactionReceipt receipt, params object[] parms)
         {
             //Deploy
-            string tx = Web3.Eth.DeployContract.SendRequestAsync("", contract.ByteCode, owner, GetEnoughGas(), parms)
+            receipt = OwnerWeb3.Eth.DeployContract
+                .SendRequestAndWaitForReceiptAsync(contract.Abi, contract.ByteCode, owner, GetEnoughGas(), null, parms)
                 .Result;
-            return GetReceiptFromTransaction(tx);
+            Output.WriteLine("Contract address {0} block height {1}", receipt.ContractAddress, receipt.BlockNumber.Value);
+            return OwnerWeb3.Eth.GetContract(contract.Abi, receipt.ContractAddress);
+        }
+
+        protected async Task<TransactionReceipt> ExecuteFunc(Function func, string from, params object[] input)
+        {
+            //Estimate gas
+            var gas = await func.EstimateGasAsync(input);
+
+            //Send transaction and return results
+            return await func.SendTransactionAndWaitForReceiptAsync(from, gas, null, null, input);
         }
 
         /// <summary>
-        /// Gets the contract from the blockchain.
+        /// Gets the account with password.
         /// </summary>
-        /// <param name="contractModel">The contract model.</param>
-        /// <param name="contractAddress">The contract address.</param>
+        /// <param name="address">The address.</param>
         /// <returns></returns>
-        protected Contract GetContract(ContractModel contractModel, string contractAddress) =>
-            Web3.Eth.GetContract("", contractAddress);
+        protected ManagedAccount GetAccount(string address = "")
+        {
+            //Check input
+            if (!AccountDictionary.ContainsKey(address))
+                throw new Exception($"Expected address to be known {address}");
+            address = string.IsNullOrWhiteSpace(address) ? AccountDictionary.ElementAt(0).Key : address;
+
+            //Return account
+            return new ManagedAccount(address, AccountDictionary[address]);
+        }
+
+        /// <summary>
+        /// Get balance of address based on contract reference
+        /// </summary>
+        protected async Task<BigInteger> GetBalance(string address, Contract crowdsaleContract = null) =>
+            await (crowdsaleContract ?? CrowdSaleContract).GetFunction("balanceOf")
+                .CallAsync<long>(address);
+
+        /// <summary>
+        /// Gets the client connection, authenticated
+        /// </summary>
+        /// <param name="_privateKey"></param>
+        /// <returns></returns>
+        protected Web3 GetClientConnection(string _privateKey) =>
+            new Web3(new Account(_privateKey), Configuration["RPC"]);
+
+        /// <summary>
+        /// Gets the client connection, authenticated
+        /// </summary>
+        /// <param name="_account"></param>
+        /// <returns></returns>
+        protected Web3 GetClientConnection(ManagedAccount _account) =>
+            new Web3(_account, Configuration["RPC"]);
+
+        protected async Task<Contract> GetContractFromAddress(string contractAddress, ContractModel contractModel, string fromAddress = null, string password = "")
+        {
+            //Get account, if applicable
+            password = AccountDictionary.ContainsKey(fromAddress) ? AccountDictionary[fromAddress] : string.IsNullOrWhiteSpace(password) ? Password : password;
+            var account = new ManagedAccount(string.IsNullOrWhiteSpace(fromAddress) ? await CreateNewEthereumAddressAsync(password) : fromAddress, password);
+            Web3 web3Client = new Web3(account, Configuration["RPC"]);
+
+            //Return contract address using account details
+            return web3Client.Eth.GetContract(contractModel.Abi, contractAddress);
+        }
 
         /// <summary>
         /// Gets the contract model.
@@ -138,7 +270,7 @@ namespace test
         protected ContractModel GetContractModel(string contractname)
         {
             //Get the source file
-            FileInfo sourceFile = new FileInfo(Path.Combine("..", "build", "contracts", $"{contractname}.json"));
+            FileInfo sourceFile = new FileInfo(Path.GetFullPath(Path.Combine("..", "..", "..", "..", "build", "contracts", $"{contractname}.json")));
             if (!sourceFile.Exists)
                 throw new Exception($"Built contract of name {contractname} does not exist. Expected path: {sourceFile.FullName}");
 
@@ -150,7 +282,15 @@ namespace test
         /// Gets enough gas.
         /// </summary>
         /// <returns></returns>
-        protected HexBigInteger GetEnoughGas() => new HexBigInteger(2000000);
+        protected HexBigInteger GetEnoughGas(long _gasAmount = 6721975) => new HexBigInteger(_gasAmount);
+
+        /// <summary>
+        /// Gets some ether amount.
+        /// </summary>
+        /// <param name="_ether">The ether.</param>
+        /// <returns></returns>
+        protected BigInteger GetEther(double _ether) =>
+            UnitConversion.Convert.ToWei(_ether);
 
         /// <summary>
         /// Monitors the tx.
@@ -160,60 +300,85 @@ namespace test
         protected TransactionReceipt GetReceiptFromTransaction(string transactionHash)
         {
             //Check receipt
-            var receipt = Web3.Eth.Transactions.GetTransactionReceipt.SendRequestAsync(transactionHash).Result;
+            var receipt = OwnerWeb3.Eth.Transactions.GetTransactionReceipt.SendRequestAsync(transactionHash).Result;
 
             //Weit for the receipt
             while (receipt == null)
             {
-                WriteLine("Sleeping for 5 seconds");
+                Output.WriteLine("Sleeping for 5 seconds");
                 System.Threading.Thread.Sleep(5000);
-                receipt = Web3.Eth.Transactions.GetTransactionReceipt.SendRequestAsync(transactionHash).Result;
+                receipt = OwnerWeb3.Eth.Transactions.GetTransactionReceipt.SendRequestAsync(transactionHash).Result;
             }
 
             //Report + return
-            WriteLine("Contract address {0} block height {1}", receipt.ContractAddress, receipt.BlockNumber.Value);
+            Output.WriteLine("Contract address {0} block height {1}", receipt.ContractAddress, receipt.BlockNumber.Value);
             return receipt;
+        }
+
+        /// <summary>
+        /// Initializes the specified token and crowdsale contract.
+        /// </summary>
+        /// <param name="_constructFunc"></param>
+        /// <param name="_tokenContract"></param>
+        /// <param name="_crowdSaleContract"></param>
+        protected void Initialize(Action<CrowdsaleConstructorModel> _constructFunc = null, Contract _tokenContract = null, Contract _crowdSaleContract = null)
+        {
+            //Check for input and initialize when needed
+            TokenContract = _tokenContract ?? InitializeTokenContract(AccountDictionary.ElementAt(0).Key);
+            CrowdSaleContract = _crowdSaleContract ?? InitializeCrowdSaleContract(TokenReceipt.ContractAddress, _constructFunc);
+        }
+
+        /// <summary>
+        /// Initializes the crowdsale contract.
+        /// </summary>
+        /// <param name="_tokenaddress"></param>
+        /// <param name="inputFunc"></param>
+        /// <returns></returns>
+        protected Contract InitializeCrowdSaleContract(string _tokenaddress, Action<CrowdsaleConstructorModel> inputFunc = null)
+        {
+            //Transform input
+            var input = new CrowdsaleConstructorModel();
+            inputFunc?.Invoke(input);
+
+            //Check input
+            if (string.IsNullOrWhiteSpace(_tokenaddress))
+                throw new ArgumentNullException(nameof(_tokenaddress), "Token address is missing");
+
+            //Set constructor input
+            object[] constructorParms = {
+                input.OpeningTime,
+                input.ClosingTime,
+                input.SoftCapRate,
+                input.HardCapRate,
+                input.PreSaleRate,
+                input.Wallet,
+                input.CompanyReserve,
+                input.MiningPool,
+                input.MiningPool,
+                input.GitHubBounty,
+                input.HardCap,
+                input.SofCap,
+                //_softcaperc, => TODO: remove
+                input.PreSaleCap,
+                _tokenaddress
+            };
+
+            //Return deployed contract
+            var toreturn = DeployContract(GetContractModel(CrowdSaleContractName), input.Owner, out var crowdSaleReceipt, constructorParms);
+            CrowdSaleReceipt = crowdSaleReceipt;
+            return toreturn;
         }
 
         /// <summary>
         /// Initializes the token contract.
         /// </summary>
         /// <param name="owner">The owner.</param>
-        /// <param name="contractName">Name of the contract.</param>
         /// <returns></returns>
-        protected TransactionReceipt InitializeTokenContract(string owner, string contractName) =>
-            DeployContract(GetContractModel("QuantToken"), owner, contractName);
-
-        /// <summary>
-        /// Initializes the crowdsale contract.
-        /// </summary>
-        /// <param name="owner">The owner.</param>
-        /// <param name="contractName">Name of the contract.</param>
-        /// <returns></returns>
-        protected TransactionReceipt InitializeCrowdSaleContract(string owner, string contractName, long _openingTime, long _closingTime, 
-            long _softcaprate, long _hardcaprate, long _presalerate, string _wallet, string _companyreserve, string _miningpool, string _icobounty, 
-            string _githubbounty, long _cap, long _softcaperc, long _presalecap, string _token)
+        protected Contract InitializeTokenContract(string owner)
         {
-            //Set constructor input
-            object[] constructorParms = {
-                _openingTime,
-                _closingTime,
-                _softcaprate,
-                _hardcaprate,
-                _presalerate,
-                _wallet,
-                _companyreserve,
-                _miningpool,
-                _icobounty,
-                _githubbounty,
-                _cap,
-                _softcaperc,
-                _presalecap,
-                _token
-            };
-
-            //Return deployed contract
-            return DeployContract(GetContractModel("QuantTokenCrowdSale"), owner, contractName, constructorParms);
+            TokenContract = DeployContract(GetContractModel(TokenContractName), owner, out var tokenReceipt);
+            TokenReceipt = tokenReceipt;
+            return TokenContract;
         }
 
         #endregion Protected Methods

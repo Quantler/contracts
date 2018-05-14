@@ -16,7 +16,7 @@ import "zeppelin-solidity/contracts/crowdsale/distribution/PostDeliveryCrowdsale
  *      - PostDeliveryCrowdsale: Tokens will be distributed after crowdsale
  *      - AffiliateList: affiliate distribution and registration
  */
-contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, MintedCrowdsale, PostDeliveryCrowdsale {
+contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, MintedCrowdsale, PostDeliveryCrowdsale, AffiliateList {
 
     // Current public soft cap
     uint256 public SoftCap;
@@ -154,20 +154,21 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
     if(IsPreSaleOpen == false)
       super._preValidatePurchase(_beneficiary, _weiAmount);
     else
+	  //TODO: als check if current transaction will change this
       IsPreSaleOpen = weiRaised <= PresaleCap;
   }
 
   /**
    * @dev Open the presale on any given moment
    */
-  function _openPresale() external onlyOwner{
+  function openPresale() external onlyOwner{
     IsPreSaleOpen = true;
   }
 
   /**
    * @dev Close the presale manually
    */
-  function _closePresale() external onlyOwner{
+  function closePresale() external onlyOwner{
     IsPreSaleOpen = false;
   }
 }

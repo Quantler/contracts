@@ -8,7 +8,7 @@ import "zeppelin-solidity/contracts/token/ERC20/MintableToken.sol";
  */
 contract QuantToken is MintableToken {
 
-  string public constant name = "QuantToken"; // solium-disable-line uppercase
+  string public constant name = "Quantler"; // solium-disable-line uppercase
   string public constant symbol = "QUANT"; // solium-disable-line uppercase
   uint256 public constant decimals = 18; // solium-disable-line uppercase
 
