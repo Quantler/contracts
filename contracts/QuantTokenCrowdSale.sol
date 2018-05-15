@@ -130,8 +130,6 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    * @return Number of tokens that can be purchased with the specified _weiAmount
    */
   function _getTokenAmount(uint256 _weiAmount) internal view returns (uint256) {
-    
-    //TODO: overflow and overbought scenario! => refunds?
 
     //Check currently active rate
     uint256 _rate = SoftCapRate;
@@ -151,13 +149,16 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    */
   function _processPurchase(address _beneficiary, uint256 _tokenAmount) internal {
 
+    //TODO: overflow and overbought scenario! => refunds?
+
     //Check if additional affiliate amounts should be applied
     address affiliate = affiliateList[_beneficiary];
     uint256 totalTokens = _tokenAmount;
     if(affiliate != address(0)){
       uint256 affiliateTokens = _tokenAmount.mul(5).div(100);
       balances[affiliate]= balances[affiliate].add(affiliateTokens);
-      _tokenAmount = _tokenAmount.mul(105).div(100).add(affiliateTokens);
+      _tokenAmount = _tokenAmount.mul(105).div(100);
+      totalTokens = _tokenAmount.add(affiliateTokens);
       addressIndices.push(affiliate);
     }
 
