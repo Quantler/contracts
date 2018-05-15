@@ -33,6 +33,9 @@ namespace test
 
         #region Protected Fields
 
+        /// <summary>
+        /// The crowd sale contract name
+        /// </summary>
         protected const string CrowdSaleContractName = "QuantTokenCrowdSale";
 
         /// <summary>
@@ -40,6 +43,9 @@ namespace test
         /// </summary>
         protected const string Password = "Password";
 
+        /// <summary>
+        /// The token contract name
+        /// </summary>
         protected const string TokenContractName = "QuantToken";
 
         /// <summary>
@@ -123,6 +129,9 @@ namespace test
 
         #region Protected Properties
 
+        /// <summary>
+        /// Gets the opening time delay for the main sale.
+        /// </summary>
         protected TimeSpan OpeningTimeDelay => TimeSpan.FromSeconds(2);
 
         #endregion Protected Properties
@@ -354,11 +363,10 @@ namespace test
                 input.Wallet,
                 input.CompanyReserve,
                 input.MiningPool,
-                input.MiningPool,
+                input.ICOBounty,
                 input.GitHubBounty,
                 input.HardCap,
                 input.SofCap,
-                //_softcaperc, => TODO: remove
                 input.PreSaleCap,
                 _tokenaddress
             };
@@ -380,6 +388,20 @@ namespace test
             TokenReceipt = tokenReceipt;
             return TokenContract;
         }
+
+        /// <summary>
+        /// Returns the allocated balance for the selected address
+        /// </summary>
+        /// <returns></returns>
+        protected async Task<BigInteger> GetAllocatedBalance(string address) =>
+            await CrowdSaleContract.GetFunction("balances").CallAsync<BigInteger>(address);
+
+        /// <summary>
+        /// Opens the presale
+        /// </summary>
+        /// <returns></returns>
+        protected async Task<TransactionReceipt> OpenPreSale(string fromAddress) =>
+            await ExecuteFunc(CrowdSaleContract.GetFunction("openPresale"), fromAddress);
 
         #endregion Protected Methods
     }

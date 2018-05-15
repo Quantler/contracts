@@ -2,3 +2,4 @@ node_modules/
 test/obj/
 test/bin/
 test/.vs/
+build/

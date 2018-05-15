@@ -6,6 +6,13 @@ using Xunit.Abstractions;
 
 namespace test
 {
+    /// <summary>
+    /// Applicable Tests:
+    ///     1. GetCorrectInitialSupplyTest => get correct initial supply, which is 0
+    ///     2. GetCorrectTokenNameTest => get correct token name, which is Quantler
+    ///     3. GetCorrectTokenSymbolTest => get correct token symbol, which is QUANT
+    /// </summary>
+    /// <seealso cref="test.BaseTest" />
     public class ERC20Tests : BaseTest
     {
         #region Public Constructors

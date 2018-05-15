@@ -1,12 +1,17 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 
 namespace test.Model
 {
     public class ContractModel
     {
+        #region Public Properties
+
         public string Abi { get; set; }
         public string ByteCode { get; set; }
+
+        #endregion Public Properties
+
+        #region Public Methods
 
         /// <summary>
         /// Gets the contract model from a json file
@@ -23,5 +28,7 @@ namespace test.Model
                 Abi = data["abi"].ToString()
             };
         }
+
+        #endregion Public Methods
     }
 }

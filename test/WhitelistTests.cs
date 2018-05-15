@@ -21,6 +21,8 @@ namespace test
     ///     7. CannotAddMultipleWhitelistedAddressesFromDisallowed => Not allowed to add multiple addresses from a nonowner address
     ///     8. CannotBuyMoreThanAllowed => Whitelisted person cannot buy more than is allowed to contribute
     ///     9. CannotBuyAnythingWhenNotWhitelisted => Non-whitelisted person cannot buy any tokens when this person is not whitelisted
+    ///     10. CorrectAmountContributedForWhitelist => When buying tokens, the correct amount of contribution is set in state
+    ///     11. OwnerCanChangeWhitelistTest => owner can change the amount a source address is allowed to spent during the crowdsale
     /// </summary>
     /// <seealso cref="BaseTest" />
     public class WhitelistTests : BaseTest

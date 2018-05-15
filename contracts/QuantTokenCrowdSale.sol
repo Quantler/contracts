@@ -37,39 +37,39 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
     uint256 public PresaleCapRate;
 
     //Company reserve destionation address
-    address CompanyReserve;
+    address public CompanyReserve;
 
     //Mining pool destination address
-    address MiningPool;
+    address public MiningPool;
 
     //ICO bounty destination address
-    address ICOBounty;
+    address public ICOBounty;
 
     //Github bounty destination address
-    address GithubBounty; 
+    address public GithubBounty; 
 
     //Company Percentage
-    uint256 CompanyPercentage;
+    uint256 public CompanyPercentage;
 
     //MiningPool Percentage
-    uint256 MiningPoolPercentage;
+    uint256 public MiningPoolPercentage;
 
     //ICOBounty Percentage
-    uint256 ICOBountyPercentage;
+    uint256 public ICOBountyPercentage;
 
     //GithubBounty Percentage
-    uint256 GithubBountyPercentage;
-
-    //Affiliate registry
-    AffiliateList public affiliateList;
+    uint256 public GithubBountyPercentage;
 
     //Pre-Sale check
-    bool IsPreSaleOpen;
+    bool public IsPreSaleOpen;
+    
+    //Helps us run a loop through addresses for token release
+    address[] public addressIndices;
 
   /**
    * @dev The QuantTokenCrowdSale constructor sets the initial crowdsale parameters.
    */
-  function QuantTokenCrowdSale(
+    function QuantTokenCrowdSale(
     uint256 _openingTime,
     uint256 _closingTime,
     uint256 _softcaprate,
@@ -81,7 +81,7 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
     address _icobounty,
     address _githubbounty,
     uint256 _cap,
-    uint256 _softcaperc,
+    uint256 _softcap,
     uint256 _presalecap,
     QuantToken _token
   )
@@ -94,8 +94,6 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
       require(_openingTime > 0);
       require(_closingTime > 0);
       require(_softcaprate > 0);
-      require(_softcaprate > _hardcaprate);
-      require(_softcaprate > _hardcaprate);
       require(_wallet != address(0));
       require(_companyreserve != address(0));
       require(_miningpool != address(0));
@@ -103,15 +101,27 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
       require(_githubbounty != address(0));
       require(_presalecap > 0);
       require(_presalerate > 0);
+      require(_softcap > 0);
 
-      //Set items
+      //Set Caps and Rates
       HardCap = _cap;
-      SoftCap = HardCap.mul(_softcaperc);
+      SoftCap = _softcap;
       PresaleCap = _presalecap;
       SoftCapRate = _softcaprate;
       HardCapRate = _hardcaprate;
       PresaleCapRate = _presalerate;
-      affiliateList = new AffiliateList();
+
+      //Set Wallets
+      CompanyReserve = _companyreserve;
+      MiningPool = _miningpool;
+      ICOBounty = _icobounty;
+      GithubBounty = _githubbounty; 
+
+      //Set static items
+      CompanyPercentage = 50;
+      MiningPoolPercentage = 15;
+      ICOBountyPercentage = 3;
+      GithubBountyPercentage = 2;
   }
 
   /**
@@ -121,18 +131,17 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    */
   function _getTokenAmount(uint256 _weiAmount) internal view returns (uint256) {
     
-    //Check if soft-cap has been hit
+    //TODO: overflow and overbought scenario! => refunds?
+
+    //Check currently active rate
     uint256 _rate = SoftCapRate;
-    if(weiRaised > SoftCap)
+    if(IsPreSaleOpen)
+        _rate = PresaleCapRate;
+    if(weiRaised >= SoftCap)
         _rate = HardCapRate;
 
-    //Check if additional affiliate amounts should be applied
-    //if(affiliateList.getAffiliate(0))
-    if(1==1)
-        _rate = _rate.mul(110).div(100);
-
     //Return total amount, based on current rate
-    return _weiAmount.mul(_rate);
+    return _weiAmount.div(_rate);
   }
 
     /**
@@ -141,8 +150,26 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    * @param _tokenAmount Number of tokens to be purchased
    */
   function _processPurchase(address _beneficiary, uint256 _tokenAmount) internal {
-      //Here we specify who gets what amount of tokens (Buyer/_beneficiary 30%, Company Address 50% etc...) + affiliate
+
+    //Check if additional affiliate amounts should be applied
+    address affiliate = affiliateList[_beneficiary];
+    uint256 totalTokens = _tokenAmount;
+    if(affiliate != address(0)){
+      uint256 affiliateTokens = _tokenAmount.mul(5).div(100);
+      balances[affiliate]= balances[affiliate].add(affiliateTokens);
+      _tokenAmount = _tokenAmount.mul(105).div(100).add(affiliateTokens);
+      addressIndices.push(affiliate);
+    }
+
+    //Here we specify who gets what amount of tokens (Buyer/_beneficiary 30%, Company Address 50% etc...)
     balances[_beneficiary] = balances[_beneficiary].add(_tokenAmount);
+    balances[CompanyReserve] = balances[CompanyReserve].add(totalTokens.mul(CompanyPercentage).div(30));
+    balances[MiningPool] = balances[MiningPool].add(totalTokens.mul(MiningPoolPercentage).div(30));
+    balances[ICOBounty] = balances[ICOBounty].add(totalTokens.mul(ICOBountyPercentage).div(30));
+    balances[GithubBounty] = balances[GithubBounty].add(totalTokens.mul(GithubBountyPercentage).div(30));
+    
+    //We always need to add this address for indexing purpose
+    addressIndices.push(_beneficiary);
   }
 
   /**
@@ -151,11 +178,8 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    * @param _weiAmount Amount of wei contributed
    */
   function _preValidatePurchase(address _beneficiary, uint256 _weiAmount) internal {
-    if(IsPreSaleOpen == false)
+    if(IsPreSaleOpen == false || weiRaised >= PresaleCap)
       super._preValidatePurchase(_beneficiary, _weiAmount);
-    else
-	  //TODO: als check if current transaction will change this
-      IsPreSaleOpen = weiRaised <= PresaleCap;
   }
 
   /**
@@ -170,5 +194,21 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
    */
   function closePresale() external onlyOwner{
     IsPreSaleOpen = false;
+  }
+  
+  /**
+   * @dev Withdraw all tokens after crowdsale ends.
+   */
+  function withdrawAllTokens() external onlyOwner {
+    require(hasClosed());
+    for(uint i = 0; i < addressIndices.length; i++){
+        address recipient = addressIndices[i];
+        uint256 amount = balances[msg.sender];
+        if(amount > 0)
+        {
+            balances[recipient] = 0;
+            _deliverTokens(recipient, amount);
+        }
+    }
   }
 }
