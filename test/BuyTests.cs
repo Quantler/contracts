@@ -1,8 +1,11 @@
 ﻿using FluentAssertions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
+using Nethereum.JsonRpc.Client;
 using test.Model;
 using Xunit;
 using Xunit.Abstractions;
@@ -131,16 +134,18 @@ namespace test
         [Fact]
         public async Task CannotBuyTokensIfTokenSaleNotStarted()
         {
-            throw new NotImplementedException();
             //Arrange
+            Initialize();
 
             //Act
+            Func<Task> exceptionAction = async () => await BuyTokens(AccountDictionary.ElementAt(0).Key, AccountDictionary.ElementAt(0).Key, GetEther(1));
 
             //Assert
+            exceptionAction.Should().Throw<RpcResponseException>().And.Message.Should().Contain("revert");
         }
 
         [Fact]
-        public async Task CorrectOverflowFromSoftCapToHardCapRateTest()
+        public async Task CorrectOverflowAndRefundTest()
         {
             throw new NotImplementedException();
             //Arrange
@@ -151,64 +156,248 @@ namespace test
         }
 
         [Fact]
-        public async Task CorrectWalletSpreadHardCapSale()
+        public async Task CanOnlyWithdrawOnce()
         {
-            throw new NotImplementedException();
             //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            string investorAddress = AccountDictionary.Last().Key;
+            var amountContributed = GetEther(1);
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                })
+                .WithContributors(new Dictionary<string, BigInteger>
+                {
+                    {investorAddress, amountContributed}
+                })
+                .Prepare(async x =>
+                {
+                    //Open pre-sale
+                    await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+                })
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
+
+            //Initial withdrawal
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
 
             //Act
+            Func<Task> exceptionAction = async () => await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
 
             //Assert
+            exceptionAction.Should().Throw<RpcResponseException>().And.Message.Should().Contain("revert");
+        }
+
+        [Fact]
+        public async Task CorrectHardCapSpreadWithAffiliateAndRefund()
+        {
+            //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            string investorAddress = AccountDictionary.Last().Key;
+            var amountContributed = GetEther(1);
+
+            //Act
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                    x.HardCapRate = 9259259259;
+                    x.SoftCapRate = 9259259259;
+                    x.HardCap = GetEther(1);
+                })
+                .WithContributors(new Dictionary<string, BigInteger>
+                {
+                    {investorAddress, amountContributed}
+                })
+                .WaitBeforeContributing(x => DateTime.UtcNow > openingtime)
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
+
+            //Act (release token balances)
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
+
+            //Assert
+
+        }
+
+        [Fact]
+        public async Task CanBuyForAWhitelistedAddressDelegated()
+        {
+            throw new NotImplementedException();
+        }
+
+        [Fact]
+        public async Task CanBuyMultipleContributors()
+        {
+            //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            var contributors = new Dictionary<string, BigInteger>
+            {
+                {AccountDictionary.ElementAt(1).Key, GetEther(1)},
+                {AccountDictionary.ElementAt(2).Key, GetEther(2)},
+                {AccountDictionary.ElementAt(3).Key, GetEther(1.1231)},
+                {AccountDictionary.ElementAt(4).Key, GetEther(0.01)}
+            };
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                })
+                .WithContributors(contributors)
+                .Prepare(async x =>
+                {
+                    //Open pre-sale
+                    await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+                })
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
+
+            //Act (release token balances)
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
+
+            //Check contributors
+            foreach (var contributor in contributors)
+                (await GetBalance(contributor.Key)).Should().Be(contributor.Value / CrowdsaleConstructorModel.PreSaleRate);
+        }
+
+
+        [Fact]
+        public async Task WeiRaisedIsCorrect()
+        {
+            //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            var contributors = new Dictionary<string, BigInteger>
+            {
+                {AccountDictionary.ElementAt(1).Key, GetEther(1)},
+                {AccountDictionary.ElementAt(2).Key, GetEther(2)},
+                {AccountDictionary.ElementAt(3).Key, GetEther(1.1231)},
+                {AccountDictionary.ElementAt(4).Key, GetEther(0.01)}
+            };
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                })
+                .WithContributors(contributors)
+                .Prepare(async x =>
+                {
+                    //Open pre-sale
+                    await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+                })
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
+
+            //Act
+            throw new NotImplementedException();
         }
 
         [Fact]
         public async Task CorrectWalletSpreadPreSale()
         {
             //Arrange
-            var input = new CrowdsaleConstructorModel();
-            Initialize();
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
             string investorAddress = AccountDictionary.Last().Key;
             var amountContributed = GetEther(1);
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                })
+                .WithContributors(new Dictionary<string, BigInteger>
+                {
+                    {investorAddress, amountContributed}
+                })
+                .Prepare(async x =>
+                {
+                    //Open pre-sale
+                    await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+                })
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
 
-            //Open tokensale pre-sale
-            await OpenPreSale(AccountDictionary.ElementAt(0).Key);
-
-            //Open to whitelist
-            var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
-                AccountDictionary.ElementAt(0).Key, investorAddress, amountContributed);
-
-            //Get contract
-            var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), investorAddress);
-
-            //Act
-            var tokenbuyTransactionRecepit = await BuyTokens(investorAddress, investorAddress, amountContributed, contractLinkBuyer);
-            var resultInvestor = await GetAllocatedBalance(investorAddress);
+            //Act (release token balances)
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
 
             //Assert
-            var investorAmount = amountContributed / input.PreSaleRate;
-            var companyAmount = investorAmount * new BigInteger(CompanyPercentage) / new BigInteger(30);
-            var miningPoolAmount = investorAmount * new BigInteger(MiningPoolPercentage) / new BigInteger(30);
-            var icoBountyAmount = investorAmount * new BigInteger(ICOBountyPercentage) / new BigInteger(30);
-            var gitHubBountyAmount = investorAmount * new BigInteger(GithubBountyPercentage) / new BigInteger(30);
-            (await GetAllocatedBalance(investorAddress)).Should().Be(investorAmount);
-            (await GetAllocatedBalance(input.CompanyReserve)).Should().Be(companyAmount);
-            (await GetAllocatedBalance(input.MiningPool)).Should().Be(miningPoolAmount);
-            (await GetAllocatedBalance(input.ICOBounty)).Should().Be(icoBountyAmount);
-            (await GetAllocatedBalance(input.GitHubBounty)).Should().Be(gitHubBountyAmount);
+            var investorAmount = amountContributed / CrowdsaleConstructorModel.PreSaleRate;
+            var allocationKey = investorAmount * 100 / 30;
+            var companyAmount = allocationKey * new BigInteger(CompanyPercentage) / new BigInteger(100);
+            var miningPoolAmount = allocationKey * new BigInteger(MiningPoolPercentage) / new BigInteger(100);
+            var icoBountyAmount = allocationKey * new BigInteger(ICOBountyPercentage) / new BigInteger(100);
+            var gitHubBountyAmount = allocationKey * new BigInteger(GithubBountyPercentage) / new BigInteger(100);
+            (await GetAllocatedBalance(investorAddress)).Should().Be(0);
+
+            //Spread check
+            (await GetBalance(investorAddress)).Should().Be(investorAmount);
+            (await GetBalance(CrowdsaleConstructorModel.CompanyReserve)).Should().Be(companyAmount);
+            (await GetBalance(CrowdsaleConstructorModel.MiningPool)).Should().Be(miningPoolAmount);
+            (await GetBalance(CrowdsaleConstructorModel.ICOBounty)).Should().Be(icoBountyAmount);
+            (await GetBalance(CrowdsaleConstructorModel.GitHubBounty)).Should().Be(gitHubBountyAmount);
+
             //General check
             (companyAmount > investorAmount && investorAmount > miningPoolAmount &&
              miningPoolAmount > icoBountyAmount && icoBountyAmount > gitHubBountyAmount).Should().BeTrue();
+            companyAmount.Should().BeGreaterThan(0);
+            investorAmount.Should().BeGreaterThan(0);
+            miningPoolAmount.Should().BeGreaterThan(0);
+            icoBountyAmount.Should().BeGreaterThan(0);
+            gitHubBountyAmount.Should().BeGreaterThan(0);
         }
 
         [Fact]
         public async Task CorrectWalletSpreadSoftCapSale()
         {
-            throw new NotImplementedException();
             //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            string investorAddress = AccountDictionary.Last().Key;
+            var amountContributed = GetEther(1);
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+                {
+                    x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                    x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+                })
+                .WithContributors(new Dictionary<string, BigInteger>
+                {
+                    {investorAddress, amountContributed}
+                })
+                .WaitBeforeContributing(x => DateTime.UtcNow < openingtime.Add(OpeningTimeDelay))
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
 
-            //Act
+            //Act (release token balances)
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
 
             //Assert
+            var investorAmount = amountContributed / CrowdsaleConstructorModel.SoftCapRate;
+            var allocationKey = investorAmount * 100 / 30;
+            var companyAmount = allocationKey * new BigInteger(CompanyPercentage) / new BigInteger(100);
+            var miningPoolAmount = allocationKey * new BigInteger(MiningPoolPercentage) / new BigInteger(100);
+            var icoBountyAmount = allocationKey * new BigInteger(ICOBountyPercentage) / new BigInteger(100);
+            var gitHubBountyAmount = allocationKey * new BigInteger(GithubBountyPercentage) / new BigInteger(100);
+            (await GetAllocatedBalance(investorAddress)).Should().Be(0);
+
+            //Spread check
+            (await GetBalance(investorAddress)).Should().Be(investorAmount);
+            (await GetBalance(CrowdsaleConstructorModel.CompanyReserve)).Should().Be(companyAmount);
+            (await GetBalance(CrowdsaleConstructorModel.MiningPool)).Should().Be(miningPoolAmount);
+            (await GetBalance(CrowdsaleConstructorModel.ICOBounty)).Should().Be(icoBountyAmount);
+            (await GetBalance(CrowdsaleConstructorModel.GitHubBounty)).Should().Be(gitHubBountyAmount);
+
+            //General check
+            (companyAmount > investorAmount && investorAmount > miningPoolAmount &&
+             miningPoolAmount > icoBountyAmount && icoBountyAmount > gitHubBountyAmount).Should().BeTrue();
+            companyAmount.Should().BeGreaterThan(0);
+            investorAmount.Should().BeGreaterThan(0);
+            miningPoolAmount.Should().BeGreaterThan(0);
+            icoBountyAmount.Should().BeGreaterThan(0);
+            gitHubBountyAmount.Should().BeGreaterThan(0);
         }
 
         #endregion Public Methods

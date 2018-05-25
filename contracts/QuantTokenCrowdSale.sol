@@ -62,9 +62,15 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
 
     //Pre-Sale check
     bool public IsPreSaleOpen;
-    
+
+    //Currently amount of tokens allocated
+    uint256 public TokensAllocated;
+
     //Helps us run a loop through addresses for token release
     address[] public addressIndices;
+
+    //If true, all tokens have been minted and released (end of ICO)
+    bool public IsTokensReleased;
 
   /**
    * @dev The QuantTokenCrowdSale constructor sets the initial crowdsale parameters.
@@ -86,7 +92,7 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
     QuantToken _token
   )
     public
-    Crowdsale(_softcaprate, _wallet, _token)
+    Crowdsale(_hardcaprate, _wallet, _token)
     TimedCrowdsale(_openingTime, _closingTime)
   {
       //Check input
@@ -122,6 +128,7 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
       MiningPoolPercentage = 15;
       ICOBountyPercentage = 3;
       GithubBountyPercentage = 2;
+      IsTokensReleased = false;
   }
 
   /**
@@ -135,21 +142,19 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
     uint256 _rate = SoftCapRate;
     if(IsPreSaleOpen)
         _rate = PresaleCapRate;
-    if(weiRaised >= SoftCap)
+    else if(weiRaised >= SoftCap)
         _rate = HardCapRate;
 
     //Return total amount, based on current rate
     return _weiAmount.div(_rate);
   }
 
-    /**
+  /**
    * @dev Executed when a purchase has been validated and is ready to be executed. Not necessarily emits/sends tokens.
    * @param _beneficiary Address receiving the tokens
    * @param _tokenAmount Number of tokens to be purchased
    */
   function _processPurchase(address _beneficiary, uint256 _tokenAmount) internal {
-
-    //TODO: overflow and overbought scenario! => refunds?
 
     //Check if additional affiliate amounts should be applied
     address affiliate = affiliateList[_beneficiary];
@@ -159,18 +164,23 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
       balances[affiliate]= balances[affiliate].add(affiliateTokens);
       _tokenAmount = _tokenAmount.mul(105).div(100);
       totalTokens = _tokenAmount.add(affiliateTokens);
-      addressIndices.push(affiliate);
+      _addKnownAddress(affiliate);
     }
 
-    //Here we specify who gets what amount of tokens (Buyer/_beneficiary 30%, Company Address 50% etc...)
+    //Check if we need to cut down on token amount since we might have already hit the cap on tokens sold
+    uint256 newTokenAmount = TokensAllocated.add(totalTokens);
+    if(newTokenAmount >= 54000000){ //Overflow HardCap
+      uint256 toBeRefunded = newTokenAmount.sub(54000000);
+      _beneficiary.transfer(toBeRefunded.mul(HardCapRate));
+      _tokenAmount = _tokenAmount.sub(toBeRefunded);
+    }
+
+    //Set balance before token release
     balances[_beneficiary] = balances[_beneficiary].add(_tokenAmount);
-    balances[CompanyReserve] = balances[CompanyReserve].add(totalTokens.mul(CompanyPercentage).div(30));
-    balances[MiningPool] = balances[MiningPool].add(totalTokens.mul(MiningPoolPercentage).div(30));
-    balances[ICOBounty] = balances[ICOBounty].add(totalTokens.mul(ICOBountyPercentage).div(30));
-    balances[GithubBounty] = balances[GithubBounty].add(totalTokens.mul(GithubBountyPercentage).div(30));
+    TokensAllocated = TokensAllocated.add(totalTokens);
     
     //We always need to add this address for indexing purpose
-    addressIndices.push(_beneficiary);
+    _addKnownAddress(_beneficiary);
   }
 
   /**
@@ -181,6 +191,22 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
   function _preValidatePurchase(address _beneficiary, uint256 _weiAmount) internal {
     if(IsPreSaleOpen == false || weiRaised >= PresaleCap)
       super._preValidatePurchase(_beneficiary, _weiAmount);
+    else
+      require(contributions[_beneficiary].add(_weiAmount) <= caps[_beneficiary]);
+  }
+
+  /**
+   * @dev Add this address as known address
+   * @param _address Address to add
+   */
+  function _addKnownAddress(address _address) internal{
+        bool found = false;
+        for(uint i = 0; i < addressIndices.length; i++){
+          if(address(addressIndices[i]) == _address)
+            found = true;
+        }
+        if(!found)
+            addressIndices.push(_address);
   }
 
   /**
@@ -198,18 +224,44 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
   }
   
   /**
-   * @dev Withdraw all tokens after crowdsale ends.
+   * @dev Withdraw all tokens after crowdsale ends. (can only be done once and only after sale has ended!)
    */
   function withdrawAllTokens() external onlyOwner {
+    //Check input
     require(hasClosed());
+    require(!IsTokensReleased);
+
+    //Allocate tokens to sub accounts
+    uint256 allocationKey = TokensAllocated.mul(100).div(30);
+    balances[CompanyReserve] = allocationKey.mul(CompanyPercentage).div(100);
+    balances[MiningPool] = allocationKey.mul(MiningPoolPercentage).div(100);
+    balances[ICOBounty] = allocationKey.mul(ICOBountyPercentage).div(100);
+    balances[GithubBounty] = allocationKey.mul(GithubBountyPercentage).div(100);
+
+    //Check for overflow via GithubBounty and correct if this is the case
+    TokensAllocated = allocationKey + balances[CompanyReserve] + balances[MiningPool] + balances[ICOBounty] + balances[GithubBounty];
+    uint256 maxTokens = 180000000;
+    if(TokensAllocated > maxTokens)
+      balances[GithubBounty] = balances[GithubBounty] - (TokensAllocated - maxTokens);
+
+    //Add addresses to known addresses
+    _addKnownAddress(CompanyReserve);
+    _addKnownAddress(MiningPool);
+    _addKnownAddress(ICOBounty);
+    _addKnownAddress(GithubBounty);
+
+    //Mint and send all tokens
     for(uint i = 0; i < addressIndices.length; i++){
         address recipient = addressIndices[i];
-        uint256 amount = balances[msg.sender];
+        uint256 amount = balances[recipient];
         if(amount > 0)
         {
             balances[recipient] = 0;
             _deliverTokens(recipient, amount);
         }
     }
+
+    //Mark End of All
+    IsTokensReleased = true;
   }
 }

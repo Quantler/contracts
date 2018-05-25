@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using test.Model;
 using Xunit.Abstractions;
@@ -81,7 +82,7 @@ namespace test
                 Configuration = builder.Build();
 
                 //Print current config
-                AccountDictionary = Configuration.GetSection("TestAddress").GetChildren().ToArray()
+                AccountDictionary = Configuration.GetSection("Address").GetChildren().ToArray()
                     .ToDictionary(x => $"{Configuration[x.Path + ":0"]}", x => $"{Configuration[x.Path + ":1"]}");
                 //output.WriteLine("========== BASE CONFIGURATION =========");
                 //output.WriteLine($"TestAddress:{AccountDictionary.Select(x => $"\n\r{x.Key}: {x.Value}")}");
@@ -124,6 +125,11 @@ namespace test
         /// Gets the token receipt.
         /// </summary>
         public TransactionReceipt TokenReceipt { get; private set; }
+
+        /// <summary>
+        /// Gets the crowdsale constructor model.
+        /// </summary>
+        public CrowdsaleConstructorModel CrowdsaleConstructorModel { get; private set; }
 
         #endregion Public Properties
 
@@ -179,7 +185,9 @@ namespace test
             var func = (crowdsaleContract ?? CrowdSaleContract).GetFunction("buyTokens");
 
             //Send transaction and return results
-            return await func.SendTransactionAndWaitForReceiptAsync(fromAddress, GetEnoughGas(), new HexBigInteger(amount), null, toAddress);
+            var result = await func.SendTransactionAndWaitForReceiptAsync(fromAddress, GetEnoughGas(), new HexBigInteger(amount), null, toAddress);
+            Output.WriteLine($"Buying tokens GasUsed: {result.GasUsed.Value}, CumulativeGasUsed: {result.CumulativeGasUsed.Value}");
+            return result;
         }
 
         /// <summary>
@@ -207,17 +215,25 @@ namespace test
             receipt = OwnerWeb3.Eth.DeployContract
                 .SendRequestAndWaitForReceiptAsync(contract.Abi, contract.ByteCode, owner, GetEnoughGas(), null, parms)
                 .Result;
-            Output.WriteLine("Contract address {0} block height {1}", receipt.ContractAddress, receipt.BlockNumber.Value);
+            Output.WriteLine($"Contract ({contract.Name}) address {receipt.ContractAddress} block height {receipt.BlockNumber.Value}");
             return OwnerWeb3.Eth.GetContract(contract.Abi, receipt.ContractAddress);
         }
 
+        /// <summary>
+        /// Executes the function specified.
+        /// </summary>
+        /// <param name="func">The function.</param>
+        /// <param name="from">From.</param>
+        /// <param name="input">The input.</param>
+        /// <returns></returns>
         protected async Task<TransactionReceipt> ExecuteFunc(Function func, string from, params object[] input)
         {
             //Estimate gas
-            var gas = await func.EstimateGasAsync(input);
+            var gas = await func.EstimateGasAsync(from, null, null, input);
+            Output.WriteLine($"Burning gas: {gas.Value} for contract: {func.ContractAddress}");
 
             //Send transaction and return results
-            return await func.SendTransactionAndWaitForReceiptAsync(from, gas, null, null, input);
+            return await func.SendTransactionAndWaitForReceiptAsync(from, GetEnoughGas(), null, null, input);
         }
 
         /// <summary>
@@ -239,8 +255,8 @@ namespace test
         /// <summary>
         /// Get balance of address based on contract reference
         /// </summary>
-        protected async Task<BigInteger> GetBalance(string address, Contract crowdsaleContract = null) =>
-            await (crowdsaleContract ?? CrowdSaleContract).GetFunction("balanceOf")
+        protected async Task<BigInteger> GetBalance(string address, Contract tokenContract = null) =>
+            await (tokenContract ?? TokenContract).GetFunction("balanceOf")
                 .CallAsync<long>(address);
 
         /// <summary>
@@ -259,6 +275,14 @@ namespace test
         protected Web3 GetClientConnection(ManagedAccount _account) =>
             new Web3(_account, Configuration["RPC"]);
 
+        /// <summary>
+        /// Gets the contract from the specified address.
+        /// </summary>
+        /// <param name="contractAddress">The contract address.</param>
+        /// <param name="contractModel">The contract model.</param>
+        /// <param name="fromAddress">From address.</param>
+        /// <param name="password">The password.</param>
+        /// <returns></returns>
         protected async Task<Contract> GetContractFromAddress(string contractAddress, ContractModel contractModel, string fromAddress = null, string password = "")
         {
             //Get account, if applicable
@@ -300,6 +324,47 @@ namespace test
         /// <returns></returns>
         protected BigInteger GetEther(double _ether) =>
             UnitConversion.Convert.ToWei(_ether);
+
+        /// <summary>
+        /// Prepares the crowd sale.
+        /// </summary>
+        /// <param name="builder">The builder.</param>
+        /// <returns></returns>
+        protected async Task PrepareCrowdSale(CrowdSaleBuilder builder)
+        {
+            //Arrange
+            Initialize(builder.InitializeAction);
+
+            //Open tokensale pre-sale
+            if(builder.PrepareAction != null)
+                await builder.PrepareAction(CrowdsaleConstructorModel);
+
+            //Wait for the tokensale to start
+            if(builder.WaitBefore != null)
+                while (builder.WaitBefore(CrowdsaleConstructorModel))
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
+
+            //Process sales
+            if(builder.Contributions != null && builder.Contributions.Count > 0)
+                foreach (var contributor in builder.Contributions)
+                {
+                    //Open to whitelist
+                    var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
+                        AccountDictionary.ElementAt(0).Key, contributor.Key, contributor.Value);
+
+                    //Get contract
+                    var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), contributor.Key);
+
+                    //Buy tokens
+                    var tokenbuyTransactionRecepit = await BuyTokens(contributor.Key, contributor.Key, contributor.Value, contractLinkBuyer);
+                    var resultInvestor = await GetAllocatedBalance(contributor.Key);
+                }
+
+            //Wait for the tokensale to end
+            if (builder.WaitAfter != null)
+                while (builder.WaitAfter(CrowdsaleConstructorModel))
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
+        }
 
         /// <summary>
         /// Monitors the tx.
@@ -352,6 +417,8 @@ namespace test
             //Check input
             if (string.IsNullOrWhiteSpace(_tokenaddress))
                 throw new ArgumentNullException(nameof(_tokenaddress), "Token address is missing");
+            else
+                CrowdsaleConstructorModel = input;
 
             //Set constructor input
             object[] constructorParms = {
@@ -374,6 +441,11 @@ namespace test
             //Return deployed contract
             var toreturn = DeployContract(GetContractModel(CrowdSaleContractName), input.Owner, out var crowdSaleReceipt, constructorParms);
             CrowdSaleReceipt = crowdSaleReceipt;
+
+            //Set the token minting owner to the crowdsale contract
+            ExecuteFunc(TokenContract.GetFunction("transferOwnership"), input.Owner, toreturn.Address).Wait();
+
+            //Return what we have
             return toreturn;
         }
 

@@ -8,6 +8,7 @@ namespace test.Model
 
         public string Abi { get; set; }
         public string ByteCode { get; set; }
+        public string Name { get; set; }
 
         #endregion Public Properties
 
@@ -25,7 +26,8 @@ namespace test.Model
             return new ContractModel
             {
                 ByteCode = data["bytecode"].Value<string>(),
-                Abi = data["abi"].ToString()
+                Abi = data["abi"].ToString(),
+                Name = data["contractName"].Value<string>()
             };
         }
 

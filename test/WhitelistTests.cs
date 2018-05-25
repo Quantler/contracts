@@ -1,10 +1,13 @@
 ﻿using FluentAssertions;
 using Nethereum.JsonRpc.Client;
 using System;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using Nethereum.Hex.HexConvertors.Extensions;
+using test.Model;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -23,6 +26,7 @@ namespace test
     ///     9. CannotBuyAnythingWhenNotWhitelisted => Non-whitelisted person cannot buy any tokens when this person is not whitelisted
     ///     10. CorrectAmountContributedForWhitelist => When buying tokens, the correct amount of contribution is set in state
     ///     11. OwnerCanChangeWhitelistTest => owner can change the amount a source address is allowed to spent during the crowdsale
+    ///     12. CannotBuyMoreThanAllowedPreSale => buyer should not be able to buy more tokens during pre-sale than allowed
     /// </summary>
     /// <seealso cref="BaseTest" />
     public class WhitelistTests : BaseTest
@@ -94,17 +98,15 @@ namespace test
         {
             //Arrange
             var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
-            Initialize(x =>
-            {
-                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
-            });
             string address = AccountDictionary.Last().Key;
             var amountWhitelisted = GetEther(0);
             var amountContributed = GetEther(5);
 
-            //Wait for the tokensale to start
-            while (DateTime.UtcNow < openingtime)
-                Thread.Sleep(TimeSpan.FromSeconds(1));
+            //Prepare crowdsale
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+            {
+                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+            }).WaitBeforeContributing(x => DateTime.UtcNow < openingtime));
 
             var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), address);
 
@@ -126,17 +128,15 @@ namespace test
         {
             //Arrange
             var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
-            Initialize(x =>
-            {
-                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
-            });
             string address = AccountDictionary.Last().Key;
             var amountWhitelisted = GetEther(1);
             var amountContributed = GetEther(5);
 
-            //Wait for the tokensale to start
-            while (DateTime.UtcNow < openingtime)
-                Thread.Sleep(TimeSpan.FromSeconds(1));
+            //Prepare crowdsale
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+            {
+                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+            }).WaitBeforeContributing(x => DateTime.UtcNow < openingtime));
 
             var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
                 AccountDictionary.ElementAt(0).Key, address, amountWhitelisted);
@@ -157,21 +157,57 @@ namespace test
         }
 
         [Fact]
+        public async Task CannotBuyMoreThanAllowedPreSale()
+        {
+            //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            string address = AccountDictionary.Last().Key;
+            var amountWhitelisted = GetEther(1);
+            var amountContributed = GetEther(5);
+
+            //Prepare crowdsale
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+            {
+                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+            }).Prepare(async x =>
+            {
+                //Open pre-sale
+                await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+
+                //Whitelist person
+                var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
+                    AccountDictionary.ElementAt(0).Key, address, amountWhitelisted);
+            }));
+            
+            var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), address);
+
+            //Act
+            Func<Task> exceptionAction = async () => await BuyTokens(address, address, amountContributed, contractLinkBuyer);
+
+            //Assert
+            exceptionAction.Should().Throw<RpcResponseException>().And.Message.Should().Contain("revert");
+            var found = await GetCurrentWhitelistInfo(address);
+            var contributed = await GetCurrentWhitelistContribution(address);
+            found.Should().BeGreaterThan(0, $"Expected {address} to be whitelisted!");
+            found.Should().Be(amountWhitelisted,
+                $"Expected whitelisted amount for address {address} to be {amountWhitelisted} but found {found}");
+            contributed.Should().Be(0, $"Expected {address} not have any contributions place as of yet!");
+        }
+
+        [Fact]
         public async Task CorrectAmountContributedForWhitelist()
         {
             //Arrange
             var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
-            Initialize(x =>
-            {
-                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
-            });
             string address = AccountDictionary.Last().Key;
             var amountWhitelisted = GetEther(5);
             var amountContributed = GetEther(1);
 
-            //Wait for the tokensale to start
-            while (DateTime.UtcNow < openingtime)
-                Thread.Sleep(TimeSpan.FromSeconds(1));
+            //Prepare crowdsale
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+            {
+                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+            }).WaitBeforeContributing(x => DateTime.UtcNow < openingtime));
 
             var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
                 AccountDictionary.ElementAt(0).Key, address, amountWhitelisted);
