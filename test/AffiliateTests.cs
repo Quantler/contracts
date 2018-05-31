@@ -1,10 +1,28 @@
-﻿using System;
+﻿#region License
+
+/*
+ *  Copyright 2018 Quantler B.V.
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+ *  to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ *  and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ *  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+*/
+
+#endregion License
+
+using FluentAssertions;
+using Nethereum.JsonRpc.Client;
+using System;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
-using FluentAssertions;
-using Nethereum.JsonRpc.Client;
 using test.Model;
 using Xunit;
 using Xunit.Abstractions;
@@ -77,8 +95,8 @@ namespace test
             var resultAffiliate = await GetAllocatedBalance(affiliateAddress);
 
             //Assert
-            var expectedInvestor = (amountContributed / input.HardCapRate) * new BigInteger(105) / new BigInteger(100);
-            var expectedAffiliate = (amountContributed / input.HardCapRate) * new BigInteger(5) / new BigInteger(100);
+            var expectedInvestor = (amountContributed * input.HardCapRate) * new BigInteger(105) / new BigInteger(100);
+            var expectedAffiliate = (amountContributed * input.HardCapRate) * new BigInteger(5) / new BigInteger(100);
             resultInvestor.Should().Be(expectedInvestor, $"Expected contribution of {expectedInvestor} for investor {investorAddress}");
             resultAffiliate.Should().Be(expectedAffiliate, $"Expected contribution of {expectedAffiliate} for affiliate {affiliateAddress}");
             expectedInvestor.Should().BeGreaterThan(amountContributed / input.HardCapRate, "You should get more tokens together than when you are alone");
@@ -119,8 +137,8 @@ namespace test
             var resultAffiliate = await GetAllocatedBalance(affiliateAddress);
 
             //Assert
-            var expectedInvestor = (amountContributed / input.SoftCapRate) * new BigInteger(105) / new BigInteger(100);
-            var expectedAffiliate = (amountContributed / input.SoftCapRate) * new BigInteger(5) / new BigInteger(100);
+            var expectedInvestor = (amountContributed * input.SoftCapRate) * new BigInteger(105) / new BigInteger(100);
+            var expectedAffiliate = (amountContributed * input.SoftCapRate) * new BigInteger(5) / new BigInteger(100);
             resultInvestor.Should().Be(expectedInvestor, $"Expected contribution of {expectedInvestor} for investor {investorAddress}");
             resultAffiliate.Should().Be(expectedAffiliate, $"Expected contribution of {expectedAffiliate} for affiliate {affiliateAddress}");
             expectedInvestor.Should().BeGreaterThan(amountContributed / input.SoftCapRate, "You should get more tokens together than when you are alone");
@@ -157,8 +175,8 @@ namespace test
             var resultAffiliate = await GetAllocatedBalance(affiliateAddress);
 
             //Assert
-            var expectedInvestor = (amountContributed / input.PreSaleRate) * new BigInteger(105) / new BigInteger(100);
-            var expectedAffiliate = (amountContributed / input.PreSaleRate) * new BigInteger(5) / new BigInteger(100);
+            var expectedInvestor = (amountContributed * input.PreSaleRate) * new BigInteger(105) / new BigInteger(100);
+            var expectedAffiliate = (amountContributed * input.PreSaleRate) * new BigInteger(5) / new BigInteger(100);
             resultInvestor.Should().Be(expectedInvestor, $"Expected contribution of {expectedInvestor} for investor {investorAddress}");
             resultAffiliate.Should().Be(expectedAffiliate, $"Expected contribution of {expectedAffiliate} for affiliate {affiliateAddress}");
             expectedInvestor.Should().BeGreaterThan(amountContributed / input.PreSaleRate, "You should get more tokens together than when you are alone");
@@ -187,7 +205,7 @@ namespace test
             var result = await GetAllocatedBalance(address);
 
             //Assert
-            result.Should().Be(amountContributed / input.PreSaleRate, $"Expected contribution of {amountContributed / input.PreSaleRate}");
+            result.Should().Be(amountContributed * input.PreSaleRate, $"Expected contribution of {amountContributed / input.PreSaleRate}");
         }
 
         [Fact]

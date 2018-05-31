@@ -1,11 +1,28 @@
-﻿using FluentAssertions;
+﻿#region License
+
+/*
+ *  Copyright 2018 Quantler B.V.
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+ *  to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ *  and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ *  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+*/
+
+#endregion License
+
+using FluentAssertions;
+using Nethereum.JsonRpc.Client;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Threading;
 using System.Threading.Tasks;
-using Nethereum.JsonRpc.Client;
 using test.Model;
 using Xunit;
 using Xunit.Abstractions;
@@ -25,6 +42,13 @@ namespace test
     ///     9. CorrectWalletSpreadPreSale => Wallets receive the correct contribution amount based on their allocation
     ///     10. CorrectWalletSpreadSoftCapSale => Wallets receive the correct contribution amount based on their allocation
     ///     11. CorrectWalletSpreadHardCapSale => Wallets receive the correct contribution amount based on their allocation
+    ///     12. CorrectOverflowAndRefundTest =>
+    ///     13. CanOnlyWithdrawOnce =>
+    ///     14. CorrectHardCapSpreadWithAffiliateAndRefund =>
+    ///     15. CanBuyForAWhitelistedAddressDelegated =>
+    ///     16. CanBuyMultipleContributors =>
+    ///     17. WeiRaisedIsCorrect =>
+    ///     18. CorrectAmountFractionalAmount =>
     /// </summary>
     /// <seealso cref="test.BaseTest" />
     public class BuyTests : BaseTest
@@ -221,7 +245,6 @@ namespace test
                 AccountDictionary.ElementAt(0).Key);
 
             //Assert
-
         }
 
         [Fact]
@@ -262,9 +285,8 @@ namespace test
 
             //Check contributors
             foreach (var contributor in contributors)
-                (await GetBalance(contributor.Key)).Should().Be(contributor.Value / CrowdsaleConstructorModel.PreSaleRate);
+                (await GetBalance(contributor.Key)).Should().Be(contributor.Value * CrowdsaleConstructorModel.PreSaleRate);
         }
-
 
         [Fact]
         public async Task WeiRaisedIsCorrect()
@@ -297,6 +319,44 @@ namespace test
         }
 
         [Fact]
+        public async Task CorrectAmountFractionalAmount()
+        {
+            //Arrange
+            var openingtime = DateTime.UtcNow.Add(OpeningTimeDelay);
+            var closingtime = DateTime.UtcNow.Add(OpeningTimeDelay * 2);
+            string investorAddress = AccountDictionary.Last().Key;
+            var amountContributed = GetEther(.015115154872);
+            await PrepareCrowdSale(CrowdSaleBuilder.Init(x =>
+            {
+                x.OpeningTime = ConvertToUnixTimestamp(openingtime);
+                x.ClosingTime = ConvertToUnixTimestamp(closingtime);
+            })
+                .WithContributors(new Dictionary<string, BigInteger>
+                {
+                    {investorAddress, amountContributed}
+                })
+                .Prepare(async x =>
+                {
+                    //Open pre-sale
+                    await OpenPreSale(AccountDictionary.ElementAt(0).Key);
+                })
+                .WaitAfterContributing(x => DateTime.UtcNow < closingtime.Add(OpeningTimeDelay)));
+
+            //Act (release token balances)
+            var releaseTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("withdrawAllTokens"),
+                AccountDictionary.ElementAt(0).Key);
+
+            //Assert
+            var investorAmount = amountContributed * CrowdsaleConstructorModel.PreSaleRate;
+            (await GetAllocatedBalance(investorAddress)).Should().Be(0);
+
+            //Spread check
+            var balance = await GetBalance(investorAddress);
+            balance.Should().Be(investorAmount);
+            GetFractionalAmountOfTokens(balance).Should().BeApproximately(.015115154872 * (int)CrowdsaleConstructorModel.PreSaleRate, 0.00001);
+        }
+
+        [Fact]
         public async Task CorrectWalletSpreadPreSale()
         {
             //Arrange
@@ -325,7 +385,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key);
 
             //Assert
-            var investorAmount = amountContributed / CrowdsaleConstructorModel.PreSaleRate;
+            var investorAmount = amountContributed * CrowdsaleConstructorModel.PreSaleRate;
             var allocationKey = investorAmount * 100 / 30;
             var companyAmount = allocationKey * new BigInteger(CompanyPercentage) / new BigInteger(100);
             var miningPoolAmount = allocationKey * new BigInteger(MiningPoolPercentage) / new BigInteger(100);
@@ -375,7 +435,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key);
 
             //Assert
-            var investorAmount = amountContributed / CrowdsaleConstructorModel.SoftCapRate;
+            var investorAmount = amountContributed * CrowdsaleConstructorModel.SoftCapRate;
             var allocationKey = investorAmount * 100 / 30;
             var companyAmount = allocationKey * new BigInteger(CompanyPercentage) / new BigInteger(100);
             var miningPoolAmount = allocationKey * new BigInteger(MiningPoolPercentage) / new BigInteger(100);

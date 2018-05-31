@@ -1,4 +1,22 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿#region License
+
+/*
+ *  Copyright 2018 Quantler B.V.
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+ *  to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ *  and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ *  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+*/
+
+#endregion License
+
+using Microsoft.Extensions.Configuration;
 using Nethereum.Contracts;
 using Nethereum.Hex.HexTypes;
 using Nethereum.RPC.Eth.DTOs;
@@ -107,6 +125,11 @@ namespace test
         public static Dictionary<string, string> AccountDictionary { get; private set; }
 
         /// <summary>
+        /// Gets the crowdsale constructor model.
+        /// </summary>
+        public CrowdsaleConstructorModel CrowdsaleConstructorModel { get; private set; }
+
+        /// <summary>
         /// Gets or sets the crowd sale contract.
         /// </summary>
         public Contract CrowdSaleContract { get; set; }
@@ -125,11 +148,6 @@ namespace test
         /// Gets the token receipt.
         /// </summary>
         public TransactionReceipt TokenReceipt { get; private set; }
-
-        /// <summary>
-        /// Gets the crowdsale constructor model.
-        /// </summary>
-        public CrowdsaleConstructorModel CrowdsaleConstructorModel { get; private set; }
 
         #endregion Public Properties
 
@@ -253,11 +271,18 @@ namespace test
         }
 
         /// <summary>
+        /// Returns the allocated balance for the selected address
+        /// </summary>
+        /// <returns></returns>
+        protected async Task<BigInteger> GetAllocatedBalance(string address) =>
+            await CrowdSaleContract.GetFunction("balances").CallAsync<BigInteger>(address);
+
+        /// <summary>
         /// Get balance of address based on contract reference
         /// </summary>
         protected async Task<BigInteger> GetBalance(string address, Contract tokenContract = null) =>
             await (tokenContract ?? TokenContract).GetFunction("balanceOf")
-                .CallAsync<long>(address);
+                .CallAsync<BigInteger>(address);
 
         /// <summary>
         /// Gets the client connection, authenticated
@@ -326,45 +351,11 @@ namespace test
             UnitConversion.Convert.ToWei(_ether);
 
         /// <summary>
-        /// Prepares the crowd sale.
+        /// Gets the fractional amount of tokens.
         /// </summary>
-        /// <param name="builder">The builder.</param>
+        /// <param name="amount">The amount.</param>
         /// <returns></returns>
-        protected async Task PrepareCrowdSale(CrowdSaleBuilder builder)
-        {
-            //Arrange
-            Initialize(builder.InitializeAction);
-
-            //Open tokensale pre-sale
-            if(builder.PrepareAction != null)
-                await builder.PrepareAction(CrowdsaleConstructorModel);
-
-            //Wait for the tokensale to start
-            if(builder.WaitBefore != null)
-                while (builder.WaitBefore(CrowdsaleConstructorModel))
-                    Thread.Sleep(TimeSpan.FromSeconds(1));
-
-            //Process sales
-            if(builder.Contributions != null && builder.Contributions.Count > 0)
-                foreach (var contributor in builder.Contributions)
-                {
-                    //Open to whitelist
-                    var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
-                        AccountDictionary.ElementAt(0).Key, contributor.Key, contributor.Value);
-
-                    //Get contract
-                    var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), contributor.Key);
-
-                    //Buy tokens
-                    var tokenbuyTransactionRecepit = await BuyTokens(contributor.Key, contributor.Key, contributor.Value, contractLinkBuyer);
-                    var resultInvestor = await GetAllocatedBalance(contributor.Key);
-                }
-
-            //Wait for the tokensale to end
-            if (builder.WaitAfter != null)
-                while (builder.WaitAfter(CrowdsaleConstructorModel))
-                    Thread.Sleep(TimeSpan.FromSeconds(1));
-        }
+        protected double GetFractionalAmountOfTokens(BigInteger amount) => (double)amount / Math.Pow(10, 18);
 
         /// <summary>
         /// Monitors the tx.
@@ -462,18 +453,52 @@ namespace test
         }
 
         /// <summary>
-        /// Returns the allocated balance for the selected address
-        /// </summary>
-        /// <returns></returns>
-        protected async Task<BigInteger> GetAllocatedBalance(string address) =>
-            await CrowdSaleContract.GetFunction("balances").CallAsync<BigInteger>(address);
-
-        /// <summary>
         /// Opens the presale
         /// </summary>
         /// <returns></returns>
         protected async Task<TransactionReceipt> OpenPreSale(string fromAddress) =>
             await ExecuteFunc(CrowdSaleContract.GetFunction("openPresale"), fromAddress);
+
+        /// <summary>
+        /// Prepares the crowd sale.
+        /// </summary>
+        /// <param name="builder">The builder.</param>
+        /// <returns></returns>
+        protected async Task PrepareCrowdSale(CrowdSaleBuilder builder)
+        {
+            //Arrange
+            Initialize(builder.InitializeAction);
+
+            //Open tokensale pre-sale
+            if (builder.PrepareAction != null)
+                await builder.PrepareAction(CrowdsaleConstructorModel);
+
+            //Wait for the tokensale to start
+            if (builder.WaitBefore != null)
+                while (builder.WaitBefore(CrowdsaleConstructorModel))
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
+
+            //Process sales
+            if (builder.Contributions != null && builder.Contributions.Count > 0)
+                foreach (var contributor in builder.Contributions)
+                {
+                    //Open to whitelist
+                    var whitelistTransactionReceipt = await ExecuteFunc(CrowdSaleContract.GetFunction("setUserCap"),
+                        AccountDictionary.ElementAt(0).Key, contributor.Key, contributor.Value);
+
+                    //Get contract
+                    var contractLinkBuyer = await GetContractFromAddress(CrowdSaleContract.Address, GetContractModel(CrowdSaleContractName), contributor.Key);
+
+                    //Buy tokens
+                    var tokenbuyTransactionRecepit = await BuyTokens(contributor.Key, contributor.Key, contributor.Value, contractLinkBuyer);
+                    var resultInvestor = await GetAllocatedBalance(contributor.Key);
+                }
+
+            //Wait for the tokensale to end
+            if (builder.WaitAfter != null)
+                while (builder.WaitAfter(CrowdsaleConstructorModel))
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
+        }
 
         #endregion Protected Methods
     }

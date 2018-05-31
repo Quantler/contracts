@@ -146,7 +146,7 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
         _rate = HardCapRate;
 
     //Return total amount, based on current rate
-    return _weiAmount.div(_rate);
+    return _weiAmount.mul(_rate);
   }
 
   /**
@@ -169,8 +169,8 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
 
     //Check if we need to cut down on token amount since we might have already hit the cap on tokens sold
     uint256 newTokenAmount = TokensAllocated.add(totalTokens);
-    if(newTokenAmount >= 54000000){ //Overflow HardCap
-      uint256 toBeRefunded = newTokenAmount.sub(54000000);
+    if(newTokenAmount >= 54000000000000000000000000){ //Overflow HardCap
+      uint256 toBeRefunded = newTokenAmount.sub(54000000000000000000000000);
       _beneficiary.transfer(toBeRefunded.mul(HardCapRate));
       _tokenAmount = _tokenAmount.sub(toBeRefunded);
     }
@@ -240,7 +240,7 @@ contract QuantTokenCrowdSale is TimedCrowdsale, IndividuallyCappedCrowdsale, Min
 
     //Check for overflow via GithubBounty and correct if this is the case
     TokensAllocated = allocationKey + balances[CompanyReserve] + balances[MiningPool] + balances[ICOBounty] + balances[GithubBounty];
-    uint256 maxTokens = 180000000;
+    uint256 maxTokens =  180000000000000000000000000;
     if(TokensAllocated > maxTokens)
       balances[GithubBounty] = balances[GithubBounty] - (TokensAllocated - maxTokens);
 
