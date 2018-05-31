@@ -42,13 +42,15 @@ namespace test
     ///     9. CorrectWalletSpreadPreSale => Wallets receive the correct contribution amount based on their allocation
     ///     10. CorrectWalletSpreadSoftCapSale => Wallets receive the correct contribution amount based on their allocation
     ///     11. CorrectWalletSpreadHardCapSale => Wallets receive the correct contribution amount based on their allocation
-    ///     12. CorrectOverflowAndRefundTest =>
-    ///     13. CanOnlyWithdrawOnce =>
-    ///     14. CorrectHardCapSpreadWithAffiliateAndRefund =>
-    ///     15. CanBuyForAWhitelistedAddressDelegated =>
-    ///     16. CanBuyMultipleContributors =>
-    ///     17. WeiRaisedIsCorrect =>
-    ///     18. CorrectAmountFractionalAmount =>
+    ///     12. CorrectOverflowAndRefundTest => If the buyer sends more funds than we are allowed to sell in tokens, the remaining amount of funds should be refunded
+    ///     13. CanOnlyWithdrawOnce => Balance holders can only withdraw their funds once
+    ///     14. CorrectHardCapSpreadWithAffiliateAndRefund => Combines a buyer with an affiliate and sends too much funds for the amount of tokens available, 
+    ///         refunding should be as expected (affiliate should not get more tokens than possible)
+    ///     15. CanBuyForAWhitelistedAddressDelegated => Delegated transfer (source address is different than the destination address), for testing purpose of using
+    ///         third-party integrations
+    ///     16. CanBuyMultipleContributors => Crowdsale tracks a correct amount for multiple contributors with different amounts
+    ///     17. WeiRaisedIsCorrect => Total amount raised is correct corresponding to the amount of funds send to the smart contract
+    ///     18. CorrectAmountFractionalAmount => Correct amount is calculated for the 18 decimal fractional amount
     /// </summary>
     /// <seealso cref="test.BaseTest" />
     public class BuyTests : BaseTest
