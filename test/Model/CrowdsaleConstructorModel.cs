@@ -35,9 +35,9 @@ namespace test.Model
         public string MiningPool { get; set; } = BaseTest.AccountDictionary.ElementAt(3).Key;
         public long OpeningTime { get; set; } = BaseTest.ConvertToUnixTimestamp(DateTime.UtcNow.AddDays(31));
         public string Owner { get; set; } = BaseTest.AccountDictionary.ElementAt(0).Key;
-        public BigInteger PreSaleCap { get; set; } = BigInteger.Multiply(BaseTest.OneEth, new BigInteger(1000));
+        public BigInteger PreSaleCap { get; set; } = BigInteger.Multiply(BaseTest.OneEth, new BigInteger(1100));
         public BigInteger PreSaleRate { get; set; } = 1666;
-        public BigInteger SofCap { get; set; } = BigInteger.Multiply(BaseTest.OneEth, new BigInteger(12500));
+        public BigInteger SofCap { get; set; } = BigInteger.Multiply(BaseTest.OneEth, new BigInteger(1300));
         public BigInteger SoftCapRate { get; set; } = 1481;
         public string Wallet { get; set; } = BaseTest.AccountDictionary.ElementAt(1).Key;
 
