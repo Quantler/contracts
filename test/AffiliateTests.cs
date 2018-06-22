@@ -241,7 +241,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key, affiliateAddress, investorAddress);
 
             //Assert
-            result.Status.HexValue.Should().Be("0x01");
+            result.Status.HexValue.Should().Be("0x1");
             var found = await GetCurrentgetAffiliate(investorAddress);
             found.Should().Be(affiliateAddress, $"Expected {investorAddress} to be the affiliate of {affiliateAddress}!");
         }

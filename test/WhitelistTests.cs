@@ -77,7 +77,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key, inputAddress, amount);
 
             //Assert
-            result.Status.HexValue.Should().Be("0x01");
+            result.Status.HexValue.Should().Be("0x1");
             foreach (var address in inputAddress)
                 (await GetCurrentWhitelistInfo(address)).Should().Be(amount, $"Expected {address} to be whitelisted!");
         }
@@ -275,7 +275,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key, address, amount);
 
             //Assert
-            result.Status.HexValue.Should().Be("0x01");
+            result.Status.HexValue.Should().Be("0x1");
             var found = await GetCurrentWhitelistInfo(address);
             found.Should().Be(amount, $"Expected {address} to be whitelisted!");
         }
@@ -297,7 +297,7 @@ namespace test
                 AccountDictionary.ElementAt(0).Key, address, amount);
 
             //Assert
-            result.Status.HexValue.Should().Be("0x01");
+            result.Status.HexValue.Should().Be("0x1");
             var found = await GetCurrentWhitelistInfo(address);
             found.Should().Be(amount, $"Expected {address} to be whitelisted!");
         }
